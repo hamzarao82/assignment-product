@@ -22,7 +22,8 @@
     "prettier": "^3.9.10",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.72.0",
-    "vitest": "^4.1.12"
+    "vite": "^7.3.7",
+    "vitest": "^5.0.5"
   },
   "type": "module",
   "private": "true"
