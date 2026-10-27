@@ -95,6 +95,8 @@ export function createTaskStore(
   let pending: Pending[] = [];
   let state: StoreState = { tasks: confirmed, error: null };
   const listeners = new Set<(state: StoreState) => void>();
+  const queue: StoreState[] = [];
+  let delivering = false;
 
   /** Recomputes visible state and notifies listeners once, only if something changed. */
   function commit(error?: string | null): void {
@@ -104,8 +106,27 @@ export function createTaskStore(
     };
     if (sameState(state, next)) return;
     state = next;
-    for (const listener of [...listeners]) {
-      if (listeners.has(listener)) listener(state);
+    notify(next);
+  }
+
+  /**
+   * Delivers each state to every listener exactly once, in order. A listener may call
+   * store actions from inside its callback: the resulting state is queued and delivered
+   * after the current delivery finishes, instead of re-entering the loop (which would
+   * hand the newest state to the remaining listeners twice).
+   */
+  function notify(next: StoreState): void {
+    queue.push(next);
+    if (delivering) return;
+    delivering = true;
+    try {
+      for (let s = queue.shift(); s !== undefined; s = queue.shift()) {
+        for (const listener of [...listeners]) {
+          if (listeners.has(listener)) listener(s);
+        }
+      }
+    } finally {
+      delivering = false;
     }
   }
 

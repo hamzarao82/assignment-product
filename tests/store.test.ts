@@ -240,3 +240,59 @@ describe("createTaskStore", () => {
     expect(store.getState().error).toBeNull();
   });
 });
+
+describe("regression: update triggered from inside a subscriber", () => {
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+  const title = (s: { tasks: readonly Task[] }): string => titleOf(s, A) ?? "";
+
+  it("delivers every state to every listener exactly once, in order", async () => {
+    const store = createTaskStore(controlledApi([]), {
+      initialTasks: [makeTask("a", { title: "orig" })],
+    });
+    const seenA: string[] = [];
+    const seenB: string[] = [];
+    let triggered = false;
+    store.subscribe((s) => {
+      seenA.push(title(s));
+      if (!triggered) {
+        triggered = true;
+        void store.updateTask(A, { title: "from A" });
+      }
+    });
+    store.subscribe((s) => seenB.push(title(s)));
+
+    await store.updateTask(A, { title: "one" });
+    await settle();
+
+    expect(seenA).toEqual(["one", "from A"]);
+    expect(seenB).toEqual(["one", "from A"]); // not ["from A", "from A"]
+    expect(store.getState().tasks[0]?.title).toBe("from A");
+  });
+
+  it("never hands the same state object to one listener twice", async () => {
+    const store = createTaskStore(controlledApi([]), { initialTasks: [makeTask("a")] });
+    const received: unknown[] = [];
+    let triggered = false;
+    store.subscribe(() => {
+      if (!triggered) {
+        triggered = true;
+        void store.updateTask(A, { title: "nested" });
+      }
+    });
+    store.subscribe((s) => received.push(s));
+    await store.updateTask(A, { title: "outer" });
+    await settle();
+    expect(received).toHaveLength(2);
+    expect(new Set(received).size).toBe(2);
+  });
+
+  it("skips a listener that was unsubscribed by an earlier listener during delivery", async () => {
+    const store = createTaskStore(controlledApi([]), { initialTasks: [makeTask("a")] });
+    const calls = vi.fn();
+    let offB: () => void = () => undefined;
+    store.subscribe(() => offB());
+    offB = store.subscribe(calls);
+    await store.updateTask(A, { title: "x" });
+    expect(calls).not.toHaveBeenCalled();
+  });
+});
