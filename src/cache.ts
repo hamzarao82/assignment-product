@@ -1,6 +1,8 @@
 /** Shares one underlying promise between simultaneous calls for the same key. */
 export function createInFlightMap<T>(): {
   run: (key: string, fn: () => Promise<T>) => Promise<T>;
+  /** Stops sharing the current promise for `key`; later calls start a fresh one. */
+  forget: (key: string) => void;
   size: () => number;
 } {
   const inFlight = new Map<string, Promise<T>>();
@@ -9,10 +11,14 @@ export function createInFlightMap<T>(): {
       const existing = inFlight.get(key);
       if (existing) return existing;
       const promise = fn().finally(() => {
-        inFlight.delete(key);
+        // Only remove our own entry: after forget(), a newer promise may own the key.
+        if (inFlight.get(key) === promise) inFlight.delete(key);
       });
       inFlight.set(key, promise);
       return promise;
+    },
+    forget(key) {
+      inFlight.delete(key);
     },
     size: () => inFlight.size,
   };
@@ -46,11 +52,17 @@ export function createCache<T>(options: CacheOptions): {
   const { ttlMs, staleMs = 0, now = Date.now } = options;
   const entries = new Map<string, Entry<T>>();
   const inFlight = createInFlightMap<T>();
+  // Bumped by invalidate(); a fetch that started under an older generation is stale.
+  const generations = new Map<string, number>();
+  const generationOf = (key: string): number => generations.get(key) ?? 0;
 
   function load(key: string, fetcher: () => Promise<T>): Promise<T> {
     return inFlight.run(key, async () => {
+      const startedIn = generationOf(key);
       const value = await fetcher();
-      entries.set(key, { value, storedAt: now() });
+      // If the key was invalidated while this request was pending, its result is
+      // out of date: hand it to the callers that asked, but never cache it.
+      if (generationOf(key) === startedIn) entries.set(key, { value, storedAt: now() });
       return value;
     });
   }
@@ -71,6 +83,8 @@ export function createCache<T>(options: CacheOptions): {
     },
     invalidate(key) {
       entries.delete(key);
+      generations.set(key, generationOf(key) + 1);
+      inFlight.forget(key); // a get() after invalidate must not join the stale request
     },
   };
 }

@@ -87,6 +87,76 @@ describe("createCache", () => {
   });
 });
 
+function controllable<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
+describe("regression: invalidate while a request is pending", () => {
+  it("does not cache the stale response, but still answers the original caller", async () => {
+    const cache = createCache<string>({ ttlMs: 10_000 });
+    const old = controllable<string>();
+    const first = cache.get("k", () => old.promise);
+    cache.invalidate("k");
+    old.resolve("old");
+    expect(await first).toBe("old");
+
+    const fetcher = vi.fn(() => Promise.resolve("new"));
+    expect(await cache.get("k", fetcher)).toBe("new");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts a fresh request instead of joining the invalidated one", async () => {
+    const cache = createCache<string>({ ttlMs: 10_000 });
+    const old = controllable<string>();
+    const first = cache.get("k", () => old.promise);
+    cache.invalidate("k");
+
+    const fetcher = vi.fn(() => Promise.resolve("new"));
+    expect(await cache.get("k", fetcher)).toBe("new");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    old.resolve("old"); // the stale response arrives last
+    expect(await first).toBe("old");
+    const later = vi.fn(() => Promise.resolve("later"));
+    expect(await cache.get("k", later)).toBe("new"); // cached value was not overwritten
+    expect(later).not.toHaveBeenCalled();
+  });
+
+  it("keeps de-duplicating the new request after the stale one settles", async () => {
+    const cache = createCache<string>({ ttlMs: 10_000 });
+    const old = controllable<string>();
+    const fresh = controllable<string>();
+    const first = cache.get("k", () => old.promise);
+    cache.invalidate("k");
+    const second = cache.get("k", () => fresh.promise);
+
+    old.resolve("old");
+    await first; // the stale request's cleanup must not drop the newer in-flight entry
+    const shared = vi.fn(() => Promise.resolve("duplicate"));
+    const third = cache.get("k", shared);
+    expect(shared).not.toHaveBeenCalled();
+
+    fresh.resolve("new");
+    expect(await Promise.all([second, third])).toEqual(["new", "new"]);
+  });
+
+  it("only invalidates the requested key", async () => {
+    const cache = createCache<string>({ ttlMs: 10_000 });
+    const a = controllable<string>();
+    const pendingA = cache.get("a", () => a.promise);
+    cache.invalidate("b");
+    a.resolve("a1");
+    await pendingA;
+    const fetcher = vi.fn(() => Promise.resolve("a2"));
+    expect(await cache.get("a", fetcher)).toBe("a1");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+});
+
 describe("createInFlightMap", () => {
   it("returns the very same promise for simultaneous calls and clears afterwards", async () => {
     const map = createInFlightMap<number>();
