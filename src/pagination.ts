@@ -72,7 +72,6 @@ export function createPagedLoader(options: PagedLoaderOptions): {
 
   async function loadNext(): Promise<void> {
     error = null;
-    publish(true);
     try {
       const page = await withRetry((signal) => fetchPage(cursor, signal), retry);
       tasks = mergeTasks(tasks, page.items);
@@ -91,16 +90,34 @@ export function createPagedLoader(options: PagedLoaderOptions): {
       // Keep everything loaded so far; the same cursor can be retried with loadMore().
       error = errorMessage(e);
     }
-    publish(false);
   }
 
   function loadMore(): Promise<void> {
     if (inFlight !== null) return inFlight; // a second call must not double-fetch
     if (!hasMore) return Promise.resolve();
-    inFlight = loadNext().finally(() => {
-      inFlight = null;
+    // inFlight must be set BEFORE publish(true): a subscriber that calls loadMore()
+    // from inside the loading notification would otherwise see no request in flight
+    // and start a duplicate one.
+    let done: () => void = () => undefined;
+    const request = new Promise<void>((resolve) => {
+      done = resolve;
     });
-    return inFlight;
+    inFlight = request;
+    try {
+      publish(true);
+    } catch (e) {
+      // A throwing subscriber must not leave the loader permanently "in flight".
+      inFlight = null;
+      done();
+      throw e;
+    }
+    void loadNext().finally(() => {
+      // Cleared before the final publish so a subscriber may chain the next loadMore().
+      inFlight = null;
+      publish(false);
+      done();
+    });
+    return request;
   }
 
   return {

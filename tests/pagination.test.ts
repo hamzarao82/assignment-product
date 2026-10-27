@@ -156,3 +156,53 @@ describe("createPagedLoader", () => {
     expect(listener).not.toHaveBeenCalled();
   });
 });
+
+describe("regression: subscriber re-entrancy", () => {
+  it("does not start a duplicate request when a subscriber calls loadMore while loading", async () => {
+    const fetchPage = vi.fn((): Promise<Page> =>
+      Promise.resolve({ items: [makeTask("a")], nextCursor: null }),
+    );
+    const loader = createPagedLoader({ fetchPage });
+    loader.subscribe(() => {
+      if (loader.getState().loading) void loader.loadMore();
+    });
+    await loader.loadMore();
+    expect(fetchPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets a subscriber chain the next page as soon as a load has finished", async () => {
+    const pages: Record<string, Page> = {
+      first: { items: [makeTask("a")], nextCursor: "p2" },
+      p2: { items: [makeTask("b")], nextCursor: "p3" },
+      p3: { items: [makeTask("c")], nextCursor: null },
+    };
+    const fetchPage = vi.fn((cursor: string | null): Promise<Page> => {
+      const page = pages[cursor ?? "first"];
+      return page ? Promise.resolve(page) : Promise.reject(new Error("unknown cursor"));
+    });
+    const loader = createPagedLoader({ fetchPage });
+    loader.subscribe(() => {
+      const s = loader.getState();
+      if (!s.loading && s.hasMore) void loader.loadMore();
+    });
+    await loader.loadMore();
+    await vi.waitFor(() => expect(loader.getState().hasMore).toBe(false));
+    expect(fetchPage).toHaveBeenCalledTimes(3);
+    expect(ids(dataOf(loader))).toEqual(["a", "b", "c"]);
+  });
+
+  it("does not stay stuck in flight when a subscriber throws during the loading notification", async () => {
+    const fetchPage = vi.fn((): Promise<Page> =>
+      Promise.resolve({ items: [makeTask("a")], nextCursor: null }),
+    );
+    const loader = createPagedLoader({ fetchPage });
+    const off = loader.subscribe(() => {
+      throw new Error("subscriber bug");
+    });
+    expect(() => loader.loadMore()).toThrow("subscriber bug");
+    expect(fetchPage).not.toHaveBeenCalled();
+    off();
+    await loader.loadMore();
+    expect(fetchPage).toHaveBeenCalledTimes(1);
+  });
+});
