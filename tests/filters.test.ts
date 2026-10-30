@@ -34,7 +34,7 @@ describe("filterTasks", () => {
   it("matches tags with any-of semantics", () => {
     expect(ids(filterTasks(sample, { tags: ["x"] }))).toEqual(["a", "d"]);
     expect(ids(filterTasks(sample, { tags: ["x", "y"] }))).toEqual(["a", "b", "d"]);
-    expect(filterTasks(sample, { tags: [] })).toEqual([]);
+    expect(ids(filterTasks(sample, { tags: [] }))).toEqual(["a", "b", "c", "d"]);
   });
 
   it("applies an inclusive createdAt range", () => {

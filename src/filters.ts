@@ -1,24 +1,56 @@
 import { type Priority, type Task, assertNever } from "./types";
 
+export interface DateRange {
+  from?: Date;
+  to?: Date;
+}
+
 export interface TaskFilter {
   priority?: Priority;
   completed?: boolean;
-  /** Any-of: a task matches if it carries at least one of these tags. */
+  /** Any-of: a task matches if it carries at least one of these tags. Empty = no tag filter. */
   tags?: readonly string[];
+  /** All-of: a task must carry every one of these tags. Empty = no tag filter. */
+  allTags?: readonly string[];
+  /** Case-insensitive substring of the title or any tag. Blank = no text filter. */
+  query?: string;
   /** Inclusive range on createdAt. */
-  createdRange?: { from?: Date; to?: Date };
+  createdRange?: DateRange;
+  /** Inclusive range on dueAt. A task with no due date never falls inside a due range. */
+  dueRange?: DateRange;
 }
 
-/** All supplied criteria combine with AND. An empty filter returns everything. */
+function inRange(date: Date | null, range: DateRange | undefined): boolean {
+  if (range === undefined || (range.from === undefined && range.to === undefined)) return true;
+  if (date === null) return false;
+  if (range.from !== undefined && date < range.from) return false;
+  if (range.to !== undefined && date > range.to) return false;
+  return true;
+}
+
+/**
+ * All supplied criteria combine with AND. An empty filter returns everything, and an
+ * empty criterion (no tags selected, a blank query) constrains nothing: deselecting
+ * every tag chip must show all tasks, not none.
+ */
 export function filterTasks(tasks: readonly Task[], filter: TaskFilter): Task[] {
-  const { priority, completed, tags, createdRange } = filter;
+  const { priority, completed, tags, allTags, createdRange, dueRange } = filter;
+  const query = filter.query?.trim().toLowerCase() ?? "";
   return tasks.filter((task) => {
     if (priority !== undefined && task.priority !== priority) return false;
     if (completed !== undefined && (task.completedAt !== null) !== completed) return false;
-    if (tags !== undefined && !task.tags.some((t) => tags.includes(t))) return false;
-    if (createdRange?.from !== undefined && task.createdAt < createdRange.from) return false;
-    if (createdRange?.to !== undefined && task.createdAt > createdRange.to) return false;
-    return true;
+    if (tags !== undefined && tags.length > 0 && !task.tags.some((t) => tags.includes(t))) {
+      return false;
+    }
+    if (allTags !== undefined && !allTags.every((t) => task.tags.includes(t))) return false;
+    if (
+      query !== "" &&
+      !task.title.toLowerCase().includes(query) &&
+      !task.tags.some((t) => t.toLowerCase().includes(query))
+    ) {
+      return false;
+    }
+    return inRange(task.createdAt, createdRange) && inRange(task.dueAt, dueRange);
   });
 }
 
