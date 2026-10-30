@@ -22,7 +22,9 @@ infrastructure and domain). Nothing in the domain layer imports from another lay
 Everything external starts as `unknown` and is validated by `validation.ts` before it
 becomes a `Task`: the API payload, imported files, cache entries, a restored offline queue
 and every edit passed to the store. `parseTask` collects all problems and returns a typed
-`Result`, so the compiler forces callers to check `ok`. Dates must be real ISO-8601 (the
+`Result`, so the compiler forces callers to check `ok`. Parsers read **own properties only**
+(`ownProp`), so a field supplied by the prototype chain, including a polluted
+`Object.prototype`, can never satisfy a check. Dates must be real ISO-8601 (the
 `Date` constructor alone accepts `"March 5, 2024"`), tags are unique, a due date may not
 precede creation, and a patch with an unknown key is rejected so a typo cannot silently do
 nothing.

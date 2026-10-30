@@ -44,3 +44,20 @@ fix** (the reproductions became the regression tests listed in the last column).
 - No offline behaviour, import/export, audit trail, metrics or redacted diagnostics.
 - Accessibility: no landmarks, live regions or labelled controls in the renderer.
 - Partial corruption was invisible: `fetchTasks` dropped invalid records without a signal.
+
+## Found in the final release check
+
+A last pass, reading the Advanced spec line by line against the code and running the
+suite repeatedly, found three more gaps. They were fixed on the branch where each
+belongs, each with a test that fails when the fix is removed.
+
+| ID  | Gap                                                                                                  | Fix                                                                   |
+| --- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| G1  | The PR template lacked the "Test evidence" field the Advanced edition requires (section 7)           | Field added to the template                                           |
+| G2  | The simulator could not produce repeated cursors, which section 4.6 asks for                         | `cursorLoop` option, plus tests for a self-repeat and an A-B-A cycle  |
+| G3  | Parsers read inherited properties, so a polluted prototype could supply a field validation never saw | `ownProp` (own properties only) in the task, import and queue parsers |
+| G4  | ESLint scanned the generated `dist/` folder, so a second local `verify` run failed                   | `dist` added to the ESLint ignores                                    |
+
+Stability checks run at the end: the full suite passed six times in a row and four times
+under randomised test order (seeds 1, 42, 2024, 99999), so no test depends on run order or
+leaks fake timers.

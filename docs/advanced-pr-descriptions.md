@@ -23,9 +23,9 @@ trust-boundary validator that rejects what the first iteration accepted.
 **Known limits:** `completedAt` can be edited through a patch as well as via toggle; the
 server remains the authority on both.
 
-**Final SHA:** `5bc32d3`
+**Final SHA:** `6f72204`
 
-**Test evidence:** 189 tests passing; lines 98.28%, branches 94.17%, functions 97.79%.
+**Test evidence:** 193 tests passing; lines 98.28%, branches 94.21%, functions 97.81%.
 Reproduced defect V1 (`"March 5, 2024"` accepted as a date) is now a failing-input test.
 Property tests: parsed tasks always satisfy the domain invariants; the parsers never throw
 on arbitrary input.
@@ -48,9 +48,9 @@ fault-isolated emitter.
 **Known limits:** Superseded loader and search promises settle with `undefined`, which
 callers must treat as "ignore".
 
-**Final SHA:** `1c8a7a6`
+**Final SHA:** `57a2e3b`
 
-**Test evidence:** 276 tests passing; lines 98.09%, branches 95.45%, functions 95.95%.
+**Test evidence:** 285 tests passing; lines 98.10%, branches 95.49%, functions 95.97%.
 Reproduced then fixed: F1 (`maxAttempts: 0` threw `undefined`), F3 (a synchronous throw left
 a dangling timer), A1 (cursor `"10abc"` parsed as 10), FL1 (empty tag selection returned
 nothing), P17 (a throwing subscriber left `loadMore()` hanging). Sort stability, nulls-last,
@@ -78,9 +78,9 @@ trail; diagnostics redact titles, tags, ids and error messages.
 **Known limits:** Offline replay is at-least-once; a lost acknowledgement surfaces as a
 version conflict. Pair the store with the queue using `mutationTimeoutMs: Infinity`.
 
-**Final SHA:** `850c061 (last code commit)`
+**Final SHA:** `7752816` (last code commit)
 
-**Test evidence:** 512 tests passing; lines 99.69%, branches 96.68%, functions 99.31%.
+**Test evidence:** 527 tests passing; lines 99.69%, branches 96.69%, functions 99.32%.
 Reproduced then fixed: ST5 (same-task edits reached the server out of order), ST11 and ST17
 (subscriber faults), S1 and S3 (search hang and sync throw), R1 (blank list on empty
 success). Each guard added during review was mutation-checked: deleting the line makes a
