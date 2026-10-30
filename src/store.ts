@@ -2,6 +2,7 @@ import { type Clock, type TaskApi, VersionConflictError } from "./api";
 import type { AuditLog } from "./audit";
 import { type Conflict, summarizeTask } from "./conflict";
 import { type ErrorReporter, createEmitter } from "./emitter";
+import { tasksEqual } from "./equality";
 import type { MetricsSink } from "./metrics";
 import { reconcileTask } from "./pagination";
 import { type RetryOptions, withRetry } from "./retry";
@@ -72,22 +73,6 @@ export function taskReducer(tasks: readonly Task[], action: TaskAction): readonl
   }
 }
 
-function sameTask(a: Task, b: Task): boolean {
-  return (
-    a === b ||
-    (a.id === b.id &&
-      a.title === b.title &&
-      a.priority === b.priority &&
-      a.completedAt?.getTime() === b.completedAt?.getTime() &&
-      a.createdAt.getTime() === b.createdAt.getTime() &&
-      a.updatedAt.getTime() === b.updatedAt.getTime() &&
-      a.dueAt?.getTime() === b.dueAt?.getTime() &&
-      a.version === b.version &&
-      a.tags.length === b.tags.length &&
-      a.tags.every((tag, i) => tag === b.tags[i]))
-  );
-}
-
 function samePending(a: Readonly<Record<string, number>>, b: Readonly<Record<string, number>>) {
   const keys = Object.keys(a);
   return keys.length === Object.keys(b).length && keys.every((k) => a[k] === b[k]);
@@ -102,7 +87,7 @@ function sameState(a: StoreState, b: StoreState): boolean {
     a.tasks.length === b.tasks.length &&
     a.tasks.every((t, i) => {
       const other = b.tasks[i];
-      return other !== undefined && sameTask(t, other);
+      return other !== undefined && tasksEqual(t, other);
     })
   );
 }
