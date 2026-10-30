@@ -47,9 +47,14 @@ function compareField(a: Task, b: Task, by: keyof Task): number {
       return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
     case "createdAt":
       return a.createdAt.getTime() - b.createdAt.getTime();
+    case "updatedAt":
+      return a.updatedAt.getTime() - b.updatedAt.getTime();
+    case "version":
+      return a.version - b.version;
     case "completedAt":
-      // Both non-null here: sortTasksBy handles null ordering first.
-      return (a.completedAt?.getTime() ?? 0) - (b.completedAt?.getTime() ?? 0);
+    case "dueAt":
+      // Both non-null here: compareTasks handles null ordering first.
+      return (a[by]?.getTime() ?? 0) - (b[by]?.getTime() ?? 0);
     case "tags":
       return compareText(a.tags.join(","), b.tags.join(","));
     default:
@@ -58,11 +63,13 @@ function compareField(a: Task, b: Task, by: keyof Task): number {
 }
 
 function compareTasks(a: Task, b: Task, key: SortKey): number {
-  if (key.by === "completedAt") {
-    // Nulls last in BOTH directions, so "not done yet" never floats to the top.
-    if (a.completedAt === null && b.completedAt === null) return 0;
-    if (a.completedAt === null) return 1;
-    if (b.completedAt === null) return -1;
+  if (key.by === "completedAt" || key.by === "dueAt") {
+    // Nulls last in BOTH directions, so "not done yet" / "no deadline" never float to the top.
+    const x = a[key.by];
+    const y = b[key.by];
+    if (x === null && y === null) return 0;
+    if (x === null) return 1;
+    if (y === null) return -1;
   }
   const result = compareField(a, b, key.by);
   return key.direction === "asc" ? result : -result;
