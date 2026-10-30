@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NonRetryableError, RetryableError } from "../src/api";
-import { backoffDelay, createLatestLoader, withRetry } from "../src/fetcher";
+import { backoffDelay, createLatestLoader, withRetry } from "../src/retry";
 import { sleep } from "../src/timing";
 import type { Task, TaskListState } from "../src/types";
 import { makeTask } from "./helpers";

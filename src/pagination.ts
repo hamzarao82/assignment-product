@@ -1,5 +1,5 @@
 import type { Page } from "./api";
-import { type RetryOptions, withRetry } from "./fetcher";
+import { type RetryOptions, withRetry } from "./retry";
 import { errorMessage } from "./timing";
 import type { AsyncState, Task } from "./types";
 
