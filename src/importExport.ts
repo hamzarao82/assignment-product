@@ -3,7 +3,7 @@ import type { AuditLog } from "./audit";
 import { tasksEqual } from "./equality";
 import { mergeTasks, reconcileTask } from "./pagination";
 import type { Result, Task } from "./types";
-import { parseIsoDate, parseTaskList } from "./validation";
+import { ownProp, parseIsoDate, parseTaskList } from "./validation";
 
 export const SCHEMA_VERSION = 1;
 
@@ -87,16 +87,16 @@ export function previewImport(existing: readonly Task[], raw: unknown): Result<I
   if (!isRecord(doc)) return { ok: false, errors: ["import must be a JSON object"] };
 
   const errors: string[] = [];
-  if (doc["schemaVersion"] !== SCHEMA_VERSION) {
+  if (ownProp(doc, "schemaVersion") !== SCHEMA_VERSION) {
     errors.push(`unsupported schemaVersion (expected ${SCHEMA_VERSION})`);
   }
-  if (parseIsoDate(doc["generatedAt"]) === null) {
+  if (parseIsoDate(ownProp(doc, "generatedAt")) === null) {
     errors.push("generatedAt must be a valid ISO date");
   }
-  if (!Array.isArray(doc["tasks"])) errors.push("tasks must be an array");
+  if (!Array.isArray(ownProp(doc, "tasks"))) errors.push("tasks must be an array");
   if (errors.length > 0) return { ok: false, errors };
 
-  const { tasks: accepted, rejected } = parseTaskList(doc["tasks"], "import");
+  const { tasks: accepted, rejected } = parseTaskList(ownProp(doc, "tasks"), "import");
   const incoming = mergeTasks([], accepted); // reconcile duplicates inside the file
 
   const byId = new Map(existing.map((t) => [t.id, t]));

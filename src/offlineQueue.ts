@@ -6,7 +6,7 @@ import type { MetricsSink } from "./metrics";
 import { type RetryOptions, withRetry } from "./retry";
 import { isAbortError } from "./timing";
 import { type Result, type Task, type TaskId, type TaskPatch, toTaskId } from "./types";
-import { parseTask, parseTaskPatch } from "./validation";
+import { ownProp, parseTask, parseTaskPatch } from "./validation";
 
 export type QueuedOp =
   | { readonly kind: "add"; readonly task: Task }
@@ -126,25 +126,25 @@ function parseTaskId(x: unknown): TaskId | null {
 /** Validates one serialized operation from unknown. Never throws. */
 function parseOp(raw: unknown): Result<QueuedOp> {
   if (!isRecord(raw)) return { ok: false, errors: ["operation must be an object"] };
-  const kind = raw["kind"];
+  const kind = ownProp(raw, "kind");
   if (kind === "add") {
-    const parsed = parseTask(raw["task"]);
+    const parsed = parseTask(ownProp(raw, "task"));
     return parsed.ok
       ? { ok: true, value: { kind: "add", task: parsed.task } }
       : { ok: false, errors: parsed.errors };
   }
   if (kind === "update" || kind === "delete") {
     const errors: string[] = [];
-    const taskId = parseTaskId(raw["taskId"]);
+    const taskId = parseTaskId(ownProp(raw, "taskId"));
     if (taskId === null) errors.push("taskId must be a non-empty string");
-    const expectedVersion = parseVersion(raw["expectedVersion"]);
+    const expectedVersion = parseVersion(ownProp(raw, "expectedVersion"));
     if (expectedVersion === null) errors.push("expectedVersion must be a non-negative integer");
     if (kind === "delete") {
       return taskId !== null && expectedVersion !== null
         ? { ok: true, value: { kind: "delete", taskId, expectedVersion } }
         : { ok: false, errors };
     }
-    const patch = parseTaskPatch(raw["patch"]);
+    const patch = parseTaskPatch(ownProp(raw, "patch"));
     if (!patch.ok) errors.push(...patch.errors);
     return taskId !== null && expectedVersion !== null && patch.ok
       ? { ok: true, value: { kind: "update", taskId, patch: patch.value, expectedVersion } }
@@ -302,15 +302,19 @@ export function createOfflineQueue(options: OfflineQueueOptions): OfflineQueue {
           return { ok: false, errors: ["queue data is not valid JSON"] };
         }
       }
-      const ops: unknown = isRecord(doc) ? doc["ops"] : undefined;
-      if (!isRecord(doc) || doc["schemaVersion"] !== SCHEMA_VERSION || !Array.isArray(ops)) {
+      const ops: unknown = isRecord(doc) ? ownProp(doc, "ops") : undefined;
+      if (
+        !isRecord(doc) ||
+        ownProp(doc, "schemaVersion") !== SCHEMA_VERSION ||
+        !Array.isArray(ops)
+      ) {
         return { ok: false, errors: ["queue data has an unsupported shape or version"] };
       }
       let restored = 0;
       let rejected = 0;
       for (const candidate of ops) {
         const item: unknown = candidate;
-        const parsed = isRecord(item) ? parseOp(item["op"]) : parseOp(item);
+        const parsed = isRecord(item) ? parseOp(ownProp(item, "op")) : parseOp(item);
         if (!parsed.ok) {
           rejected++;
           continue;
