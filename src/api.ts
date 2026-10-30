@@ -148,6 +148,8 @@ export interface PageSimOptions extends SimOptions {
   overlap?: number;
   /** Zero-based page indexes that always fail with a network error. */
   failPages?: readonly number[];
+  /** Simulates a broken server whose every page points back at the cursor just requested. */
+  cursorLoop?: boolean;
 }
 
 const PRIORITIES: readonly Priority[] = ["low", "medium", "high"];
@@ -195,7 +197,8 @@ export async function fetchTasksPage(
   const end = Math.min(total, start + pageSize);
   const items: Task[] = [];
   for (let i = from; i < end; i++) items.push(makeSimTask(i, total, now));
-  return { items, nextCursor: end < total ? String(end) : null };
+  const nextCursor = opts.cursorLoop === true ? String(start) : end < total ? String(end) : null;
+  return { items, nextCursor };
 }
 
 export type TaskChanges = Partial<Pick<Task, "title" | "priority" | "tags" | "completedAt">>;
