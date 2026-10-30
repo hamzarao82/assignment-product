@@ -22,6 +22,15 @@ function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === "object" && x !== null && !Array.isArray(x);
 }
 
+/**
+ * Reads an OWN property only. Fields inherited through the prototype chain (a class
+ * instance, or a polluted Object.prototype) are invisible to validation, so they cannot
+ * smuggle a value past a check that only looked at the object itself.
+ */
+export function ownProp(obj: Record<string, unknown>, key: string): unknown {
+  return Object.hasOwn(obj, key) ? obj[key] : undefined;
+}
+
 function isPriority(x: unknown): x is Priority {
   return PRIORITIES.some((p) => p === x);
 }
@@ -116,15 +125,15 @@ export function parseTask(raw: unknown): ParseResult {
   if (!isRecord(raw)) return { ok: false, errors: ["task must be an object"] };
   const errors: string[] = [];
 
-  const id = take(checkId(raw["id"]), errors);
-  const title = take(checkTitle(raw["title"]), errors);
-  const priority = take(checkPriority(raw["priority"]), errors);
-  const tags = take(checkTags(raw["tags"]), errors);
-  const createdAt = take(checkRequiredDate(raw["createdAt"], "createdAt"), errors);
-  const updatedAt = take(checkRequiredDate(raw["updatedAt"], "updatedAt"), errors);
-  const completedAt = take(checkNullableDate(raw["completedAt"], "completedAt"), errors);
-  const dueAt = take(checkNullableDate(raw["dueAt"], "dueAt"), errors);
-  const version = take(checkVersion(raw["version"]), errors);
+  const id = take(checkId(ownProp(raw, "id")), errors);
+  const title = take(checkTitle(ownProp(raw, "title")), errors);
+  const priority = take(checkPriority(ownProp(raw, "priority")), errors);
+  const tags = take(checkTags(ownProp(raw, "tags")), errors);
+  const createdAt = take(checkRequiredDate(ownProp(raw, "createdAt"), "createdAt"), errors);
+  const updatedAt = take(checkRequiredDate(ownProp(raw, "updatedAt"), "updatedAt"), errors);
+  const completedAt = take(checkNullableDate(ownProp(raw, "completedAt"), "completedAt"), errors);
+  const dueAt = take(checkNullableDate(ownProp(raw, "dueAt"), "dueAt"), errors);
+  const version = take(checkVersion(ownProp(raw, "version")), errors);
 
   if (createdAt !== undefined && dueAt !== undefined && dueAt !== null && dueAt < createdAt) {
     errors.push("dueAt must not be before createdAt");
@@ -198,24 +207,24 @@ export function parseTaskPatch(raw: unknown): Result<TaskPatch> {
   }
 
   const patch: MutablePatch = {};
-  if ("title" in raw) {
-    const title = take(checkTitle(raw["title"]), errors);
+  if (Object.hasOwn(raw, "title")) {
+    const title = take(checkTitle(ownProp(raw, "title")), errors);
     if (title !== undefined) patch.title = title;
   }
-  if ("priority" in raw) {
-    const priority = take(checkPriority(raw["priority"]), errors);
+  if (Object.hasOwn(raw, "priority")) {
+    const priority = take(checkPriority(ownProp(raw, "priority")), errors);
     if (priority !== undefined) patch.priority = priority;
   }
-  if ("tags" in raw) {
-    const tags = take(checkTags(raw["tags"]), errors);
+  if (Object.hasOwn(raw, "tags")) {
+    const tags = take(checkTags(ownProp(raw, "tags")), errors);
     if (tags !== undefined) patch.tags = tags;
   }
-  if ("completedAt" in raw) {
-    const completedAt = take(checkNullableDate(raw["completedAt"], "completedAt"), errors);
+  if (Object.hasOwn(raw, "completedAt")) {
+    const completedAt = take(checkNullableDate(ownProp(raw, "completedAt"), "completedAt"), errors);
     if (completedAt !== undefined) patch.completedAt = completedAt;
   }
-  if ("dueAt" in raw) {
-    const dueAt = take(checkNullableDate(raw["dueAt"], "dueAt"), errors);
+  if (Object.hasOwn(raw, "dueAt")) {
+    const dueAt = take(checkNullableDate(ownProp(raw, "dueAt"), "dueAt"), errors);
     if (dueAt !== undefined) patch.dueAt = dueAt;
   }
   return errors.length > 0 ? { ok: false, errors } : { ok: true, value: patch };
