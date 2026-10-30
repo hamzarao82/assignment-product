@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { type Page, RetryableError, fetchTasksPage } from "../src/api";
-import { createPagedLoader, mergeTasks } from "../src/pagination";
+import { createPagedLoader, mergeTasks, reconcileTask } from "../src/pagination";
 import type { Task } from "../src/types";
 import { makeTask } from "./helpers";
 
@@ -19,17 +19,40 @@ describe("mergeTasks", () => {
     expect(ids(out)).toEqual(["a", "b", "c"]);
   });
 
-  it("keeps the version with the later createdAt when content differs", () => {
-    const older = makeTask("a", { title: "old", createdAt: new Date("2024-01-01") });
-    const newer = makeTask("a", { title: "new", createdAt: new Date("2024-02-01") });
+  it("keeps the copy with the later updatedAt, whatever the order", () => {
+    const older = makeTask("a", { title: "old", updatedAt: new Date("2024-01-01"), version: 9 });
+    const newer = makeTask("a", { title: "new", updatedAt: new Date("2024-02-01"), version: 1 });
     expect(mergeTasks([older], [newer])[0]?.title).toBe("new");
     expect(mergeTasks([newer], [older])[0]?.title).toBe("new");
   });
 
-  it("keeps the first version on a createdAt tie", () => {
+  it("on equal updatedAt keeps the higher version", () => {
+    const at = new Date("2024-03-01");
+    const low = makeTask("a", { title: "low", updatedAt: at, version: 1 });
+    const high = makeTask("a", { title: "high", updatedAt: at, version: 2 });
+    expect(mergeTasks([low], [high])[0]?.title).toBe("high");
+    expect(mergeTasks([high], [low])[0]?.title).toBe("high");
+  });
+
+  it("ignores createdAt entirely when deciding the winner", () => {
+    const early = makeTask("a", {
+      title: "fresh edit",
+      createdAt: new Date("2023-01-01"),
+      updatedAt: new Date("2024-05-01"),
+    });
+    const late = makeTask("a", {
+      title: "stale",
+      createdAt: new Date("2024-01-01"),
+      updatedAt: new Date("2024-02-01"),
+    });
+    expect(mergeTasks([late], [early])[0]?.title).toBe("fresh edit");
+  });
+
+  it("keeps the first copy when updatedAt and version both tie", () => {
     const first = makeTask("a", { title: "first" });
     const second = makeTask("a", { title: "second" });
     expect(mergeTasks([first], [second])[0]?.title).toBe("first");
+    expect(reconcileTask(first, second)).toBe(first);
   });
 
   it("does not mutate its inputs", () => {
@@ -191,18 +214,33 @@ describe("regression: subscriber re-entrancy", () => {
     expect(ids(dataOf(loader))).toEqual(["a", "b", "c"]);
   });
 
-  it("does not stay stuck in flight when a subscriber throws during the loading notification", async () => {
+  it("isolates a throwing subscriber: the load still runs and the error is reported", async () => {
     const fetchPage = vi.fn((): Promise<Page> =>
       Promise.resolve({ items: [makeTask("a")], nextCursor: null }),
     );
-    const loader = createPagedLoader({ fetchPage });
-    const off = loader.subscribe(() => {
+    const errors: unknown[] = [];
+    const loader = createPagedLoader({ fetchPage, onListenerError: (e) => errors.push(e) });
+    loader.subscribe(() => {
       throw new Error("subscriber bug");
     });
-    expect(() => loader.loadMore()).toThrow("subscriber bug");
-    expect(fetchPage).not.toHaveBeenCalled();
-    off();
     await loader.loadMore();
     expect(fetchPage).toHaveBeenCalledTimes(1);
+    expect(errors.length).toBeGreaterThan(0);
+    expect(dataOf(loader)).toHaveLength(1);
+  });
+
+  it("settles loadMore() even when a subscriber throws on the final publish (P17)", async () => {
+    const loader = createPagedLoader({
+      fetchPage: () => Promise.resolve({ items: [makeTask("a")], nextCursor: null }),
+      onListenerError: () => undefined,
+    });
+    loader.subscribe(() => {
+      if (!loader.getState().loading) throw new Error("subscriber bug");
+    });
+    const outcome = await Promise.race([
+      loader.loadMore().then(() => "settled"),
+      new Promise<string>((resolve) => setTimeout(() => resolve("hung"), 200)),
+    ]);
+    expect(outcome).toBe("settled");
   });
 });
