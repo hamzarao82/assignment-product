@@ -276,3 +276,49 @@ describe("properties", () => {
     );
   });
 });
+
+describe("own-property reads only (prototype safety)", () => {
+  it("ignores fields supplied only by the prototype chain", () => {
+    const inherited: unknown = Object.create(valid);
+    const r = parseTask(inherited);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("does not let a prototype supply a missing field next to valid own fields", () => {
+    const proto = { id: "from-proto" };
+    const own = Object.assign(Object.create(proto), { ...valid });
+    delete own.id;
+    const r = parseTask(own);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.some((e) => e.startsWith("id"))).toBe(true);
+  });
+
+  it("ignores an inherited editable field in a patch", () => {
+    const patch: unknown = Object.assign(Object.create({ title: "inherited" }), {
+      priority: "low",
+    });
+    const r = parseTaskPatch(patch);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value).toEqual({ priority: "low" });
+  });
+
+  it("survives a polluted Object.prototype and always restores it", () => {
+    Object.defineProperty(Object.prototype, "title", {
+      value: "polluted",
+      configurable: true,
+      writable: true,
+    });
+    try {
+      const noTitle: Record<string, unknown> = { ...valid };
+      delete noTitle["title"];
+      expect(parseTask(noTitle).ok).toBe(false); // the polluted title is not accepted
+      const patch = parseTaskPatch({ priority: "high" });
+      expect(patch.ok && patch.value).toEqual({ priority: "high" });
+    } finally {
+      Reflect.deleteProperty(Object.prototype, "title");
+    }
+    expect(Object.prototype.hasOwnProperty.call({}, "title")).toBe(false);
+    expect(parseTask({ ...valid }).ok).toBe(true); // and normal parsing still works
+  });
+});
