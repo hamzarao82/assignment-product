@@ -120,7 +120,7 @@ describe("createSimulatedTaskApi", () => {
 
   it("fails when the rng falls under failureRate", async () => {
     const api = createSimulatedTaskApi({ delayMs: 10, failureRate: 1, rng: () => 0 });
-    const p = api.deleteTask(toTaskId("a"));
+    const p = api.deleteTask(toTaskId("a"), 0);
     const assertion = expect(p).rejects.toBeInstanceOf(RetryableError);
     await vi.advanceTimersByTimeAsync(10);
     await assertion;
