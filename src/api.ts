@@ -1,9 +1,13 @@
+import type { MetricsSink } from "./metrics";
 import { sleep } from "./timing";
-import { type Priority, type Task, type TaskId, toTaskId } from "./types";
+import { type Priority, type Task, type TaskId, type TaskPatch, toTaskId } from "./types";
 import { parseTaskList } from "./validation";
 
 /** Injectable randomness: tests pass a seeded generator so runs are deterministic. */
 export type Rng = () => number;
+
+/** Injectable clock: simulated data is generated relative to it, never to the wall clock. */
+export type Clock = () => Date;
 
 /** Small deterministic PRNG (mulberry32). */
 export function createSeededRng(seed: number): Rng {
@@ -35,16 +39,38 @@ export class NonRetryableError extends Error {
   }
 }
 
-export type Outcome = "data" | "empty" | "error";
+/**
+ * The server rejected a mutation because the client's copy was stale. Carries the
+ * server's current task so the caller can show both sides instead of overwriting.
+ * Permanent for this attempt: replaying the same stale mutation cannot succeed.
+ */
+export class VersionConflictError extends Error {
+  readonly server: Task;
+  readonly expectedVersion: number;
+  constructor(server: Task, expectedVersion: number) {
+    super(`Version conflict: expected ${expectedVersion}, server has ${server.version}`);
+    this.name = "VersionConflictError";
+    this.server = server;
+    this.expectedVersion = expectedVersion;
+  }
+}
+
+/**
+ * data/empty succeed; error is a retryable network failure; timeout is a retryable
+ * timeout; invalid is a server payload that fails validation (never retried).
+ */
+export type Outcome = "data" | "empty" | "error" | "timeout" | "invalid";
 
 export interface SimOptions {
   rng?: Rng;
+  now?: Clock;
   minDelayMs?: number;
   maxDelayMs?: number;
   outcome?: Outcome | (() => Outcome);
   /** Raw server payload; validated with parseTaskList like any untrusted input. */
   payload?: unknown;
   signal?: AbortSignal | undefined;
+  metrics?: MetricsSink;
 }
 
 export const SAMPLE_PAYLOAD: readonly unknown[] = [
@@ -72,6 +98,8 @@ export const SAMPLE_PAYLOAD: readonly unknown[] = [
   },
 ];
 
+const DEFAULT_NOW: Clock = () => new Date(Date.UTC(2024, 0, 31));
+
 function pickDelay(opts: SimOptions): number {
   const rng = opts.rng ?? Math.random;
   const min = opts.minDelayMs ?? 50;
@@ -87,10 +115,21 @@ function pickOutcome(opts: SimOptions): Outcome {
 /** Simulated network call: resolves with data, resolves empty, or rejects. */
 export async function fetchTasks(opts: SimOptions = {}): Promise<Task[]> {
   await sleep(pickDelay(opts), opts.signal);
-  const outcome = pickOutcome(opts);
-  if (outcome === "error") throw new RetryableError("network", "Network request failed");
-  if (outcome === "empty") return [];
-  const { tasks, rejected } = parseTaskList(opts.payload ?? SAMPLE_PAYLOAD);
+  switch (pickOutcome(opts)) {
+    case "error":
+      throw new RetryableError("network", "Network request failed");
+    case "timeout":
+      throw new RetryableError("timeout", "Request timed out");
+    case "invalid":
+      throw new NonRetryableError("Server returned invalid task data");
+    case "empty":
+      return [];
+    case "data":
+      break;
+  }
+  const { tasks, rejected } = parseTaskList(opts.payload ?? SAMPLE_PAYLOAD, "api");
+  // Partial corruption must not be invisible: report how many records were dropped.
+  opts.metrics?.recordRejectedRecords(rejected.length);
   if (tasks.length === 0 && rejected.length > 0) {
     throw new NonRetryableError("Server returned invalid task data");
   }
@@ -112,19 +151,30 @@ export interface PageSimOptions extends SimOptions {
 }
 
 const PRIORITIES: readonly Priority[] = ["low", "medium", "high"];
+const DAY_MS = 24 * 60 * 60 * 1000;
 
-function makeSimTask(i: number): Task {
+function makeSimTask(i: number, total: number, now: Date): Task {
+  const createdAt = new Date(now.getTime() - (total - i) * DAY_MS);
   return {
     id: toTaskId(`task-${i}`),
     title: `Task ${i}`,
     priority: PRIORITIES[i % PRIORITIES.length] ?? "low",
     completedAt: null,
-    createdAt: new Date(Date.UTC(2024, 0, 1 + i)),
-    updatedAt: new Date(Date.UTC(2024, 0, 1 + i)),
-    dueAt: null,
+    createdAt,
+    updatedAt: createdAt,
+    dueAt: i % 3 === 0 ? new Date(createdAt.getTime() + 7 * DAY_MS) : null,
     tags: [],
     version: 0,
   };
+}
+
+/** Cursors are plain non-negative integers; "10abc" or "1e3" are malformed, not 10 or 1. */
+function parseCursor(cursor: string | null): number {
+  if (cursor === null) return 0;
+  if (!/^\d+$/.test(cursor)) throw new NonRetryableError(`Invalid cursor: ${cursor.slice(0, 20)}`);
+  const start = Number(cursor);
+  if (!Number.isSafeInteger(start)) throw new NonRetryableError("Invalid cursor: out of range");
+  return start;
 }
 
 /** Cursor-based pagination over a generated dataset; cursor is the start index. */
@@ -135,18 +185,16 @@ export async function fetchTasksPage(
   const total = opts.total ?? 25;
   const pageSize = opts.pageSize ?? 10;
   const overlap = opts.overlap ?? 0;
-  const start = cursor === null ? 0 : Number.parseInt(cursor, 10);
-  if (!Number.isInteger(start) || start < 0) {
-    throw new NonRetryableError(`Invalid cursor: ${String(cursor)}`);
-  }
+  const start = parseCursor(cursor);
   await sleep(pickDelay(opts), opts.signal);
   if (opts.failPages?.includes(Math.floor(start / pageSize))) {
     throw new RetryableError("network", `Page starting at ${start} failed`);
   }
+  const now = (opts.now ?? DEFAULT_NOW)();
   const from = Math.max(0, start - overlap);
   const end = Math.min(total, start + pageSize);
   const items: Task[] = [];
-  for (let i = from; i < end; i++) items.push(makeSimTask(i));
+  for (let i = from; i < end; i++) items.push(makeSimTask(i, total, now));
   return { items, nextCursor: end < total ? String(end) : null };
 }
 
@@ -155,7 +203,7 @@ export type TaskChanges = Partial<Pick<Task, "title" | "priority" | "tags" | "co
 /** Mutation endpoints used by the store. */
 export interface TaskApi {
   addTask(task: Task): Promise<void>;
-  updateTask(id: TaskId, changes: TaskChanges): Promise<void>;
+  updateTask(id: TaskId, changes: TaskChanges | TaskPatch): Promise<void>;
   deleteTask(id: TaskId): Promise<void>;
 }
 
