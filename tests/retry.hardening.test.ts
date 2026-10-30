@@ -192,3 +192,28 @@ describe("createLatestLoader refreshing", () => {
     expect(states.some((s) => s.status === "error")).toBe(false);
   });
 });
+
+describe("non-finite timeout disables the per-attempt timer", () => {
+  it("lets a slow attempt run to completion when timeoutMs is Infinity", async () => {
+    const op = (): Promise<string> =>
+      new Promise((resolve) => {
+        setTimeout(() => resolve("late but fine"), 60_000);
+      });
+    const p = withRetry(op, { timeoutMs: Number.POSITIVE_INFINITY });
+    await vi.advanceTimersByTimeAsync(60_000);
+    await expect(p).resolves.toBe("late but fine");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("still aborts promptly when the caller's signal fires", async () => {
+    const ctrl = new AbortController();
+    const p = withRetry(() => new Promise<string>(() => undefined), {
+      timeoutMs: Number.POSITIVE_INFINITY,
+      signal: ctrl.signal,
+    });
+    const assertion = expect(p).rejects.toMatchObject({ name: "AbortError" });
+    ctrl.abort();
+    await assertion;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
