@@ -4,7 +4,7 @@ import { abortError, errorMessage, sleep } from "./timing";
 import type { Task, TaskListState } from "./types";
 
 export interface RetryOptions {
-  /** Total tries, including the first. Clamped to a whole number of at least 1. */
+  /** Total tries, including the first. Clamped to a whole number from 1 to 3. */
   maxAttempts?: number;
   baseDelayMs?: number;
   /** Upper bound for any single backoff delay, so exponential growth stays sane. */
@@ -17,12 +17,14 @@ export interface RetryOptions {
   metrics?: MetricsSink;
 }
 
-const DEFAULT_ATTEMPTS = 3;
+/** Policy ceiling from the spec: no operation is ever tried more than three times. */
+const MAX_ATTEMPTS = 3;
+const DEFAULT_ATTEMPTS = MAX_ATTEMPTS;
 
-/** Whole number >= 1; anything unusable (NaN, 0, negative) falls back safely. */
+/** Whole number from 1 to 3; unusable input (NaN, 0, negative) falls back safely. */
 export function normalizeAttempts(value: number | undefined): number {
   if (value === undefined || !Number.isFinite(value)) return DEFAULT_ATTEMPTS;
-  return Math.max(1, Math.floor(value));
+  return Math.min(MAX_ATTEMPTS, Math.max(1, Math.floor(value)));
 }
 
 /**
