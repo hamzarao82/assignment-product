@@ -11,7 +11,8 @@ src/        types, validation, api, retry, filters, selectors, pagination, store
             search, emitter, importExport, offlineQueue, audit, conflict, metrics,
             diagnostics, render, stats, equality, timing
 tests/      one test file per module, plus scenario.test.ts (the executable demo)
-docs/       architecture.md, audit-report.md, demo-script.md, learning-log.md, PR text
+docs/       architecture.md, audit-report.md, coverage-summary.md, demo-script.md,
+            learning-log.md, PR text
 .github/    CI workflow (runs `npm run verify`) and PR template
 ```
 
@@ -32,3 +33,4 @@ docs/       architecture.md, audit-report.md, demo-script.md, learning-log.md, P
 1. [docs/architecture.md](docs/architecture.md): state, races, reconciliation, rollback, cache, offline replay.
 2. [docs/audit-report.md](docs/audit-report.md): the invariants and the defects found and fixed.
 3. [docs/demo-script.md](docs/demo-script.md): the three-minute demo, executable as `tests/scenario.test.ts`.
+4. [docs/coverage-summary.md](docs/coverage-summary.md): totals against the gates and per-file coverage.

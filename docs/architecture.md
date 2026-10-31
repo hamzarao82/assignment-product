@@ -116,3 +116,22 @@ the queue, otherwise its own timeout would roll the edit back while offline.
   treat as "ignore", not as an empty result.
 - Storage is in-memory only, by assignment. The same validation boundary would apply to
   persistent storage.
+
+## Quality gates
+
+`npm run verify` is the single gate, and CI runs exactly it: lint (no `any`, no `!`, no
+`as`), Prettier check, strict typecheck, tests with coverage thresholds (88% lines, 85%
+branches, 88% functions) and a build. CI also publishes the coverage report as an artifact
+with a summary table; a committed summary is in [coverage-summary.md](coverage-summary.md).
+
+Two kinds of test deserve a mention because they prove properties rather than examples:
+
+- **Immutability.** `tests/immutability.test.ts` freezes every input and uses a `Date`
+  whose setters throw (`Object.freeze` cannot stop `date.setTime()`), then runs every public
+  function, the parsers, the store's whole history and the offline queue.
+- **Exhaustiveness.** A `@ts-expect-error` test shows that a renderer missing the
+  `refreshing` variant fails to compile, so the compiler, not a reviewer, enforces it.
+
+Guards added during review were each mutation-checked: deleting the guard makes a named test
+fail. That is how weak tests were found and strengthened (for example a security property
+test whose generator rarely produced markup characters).
