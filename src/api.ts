@@ -63,7 +63,6 @@ export type Outcome = "data" | "empty" | "error" | "timeout" | "invalid";
 
 export interface SimOptions {
   rng?: Rng;
-  now?: Clock;
   minDelayMs?: number;
   maxDelayMs?: number;
   outcome?: Outcome | (() => Outcome);
@@ -142,6 +141,8 @@ export interface Page {
 }
 
 export interface PageSimOptions extends SimOptions {
+  /** Clock the generated tasks are dated against; never the wall clock. */
+  now?: Clock;
   total?: number;
   pageSize?: number;
   /** Number of items each page repeats from the end of the previous page. */
