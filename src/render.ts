@@ -42,6 +42,8 @@ export function renderAsyncState<T>(
       );
     case "success":
       return renderData(state.data);
+    case "refreshing":
+      return `${renderData(state.data)}<p class="state state--refreshing" role="status">${escapeHtml(labels.loading ?? "Loading…")}</p>`;
     default:
       return assertNever(state);
   }

@@ -54,7 +54,10 @@ export const SAMPLE_PAYLOAD: readonly unknown[] = [
     priority: "high",
     completedAt: null,
     createdAt: "2024-01-01T09:00:00.000Z",
+    updatedAt: "2024-01-01T09:00:00.000Z",
+    dueAt: "2024-02-01T09:00:00.000Z",
     tags: ["work"],
+    version: 1,
   },
   {
     id: "task-2",
@@ -62,7 +65,10 @@ export const SAMPLE_PAYLOAD: readonly unknown[] = [
     priority: "low",
     completedAt: "2024-01-02T10:00:00.000Z",
     createdAt: "2024-01-01T10:00:00.000Z",
+    updatedAt: "2024-01-02T10:00:00.000Z",
+    dueAt: null,
     tags: ["home"],
+    version: 2,
   },
 ];
 
@@ -114,7 +120,10 @@ function makeSimTask(i: number): Task {
     priority: PRIORITIES[i % PRIORITIES.length] ?? "low",
     completedAt: null,
     createdAt: new Date(Date.UTC(2024, 0, 1 + i)),
+    updatedAt: new Date(Date.UTC(2024, 0, 1 + i)),
+    dueAt: null,
     tags: [],
+    version: 0,
   };
 }
 
