@@ -9,7 +9,7 @@ export interface RetryOptions {
   baseDelayMs?: number;
   /** Upper bound for any single backoff delay, so exponential growth stays sane. */
   maxDelayMs?: number;
-  /** Per-attempt timeout; exceeding it counts as a failed (retryable) attempt. */
+  /** Per-attempt timeout; exceeding it counts as a failed (retryable) attempt. Infinity disables it. */
   timeoutMs?: number;
   rng?: Rng;
   signal?: AbortSignal | undefined;
@@ -61,11 +61,14 @@ function runAttempt<T>(
       ctrl.abort();
       reject(abortError());
     };
-    const timer = setTimeout(() => {
-      cleanup();
-      ctrl.abort();
-      reject(new RetryableError("timeout", `Attempt timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
+    // A non-finite timeout means "no timeout": setTimeout(Infinity) would fire at once.
+    const timer = Number.isFinite(timeoutMs)
+      ? setTimeout(() => {
+          cleanup();
+          ctrl.abort();
+          reject(new RetryableError("timeout", `Attempt timed out after ${timeoutMs}ms`));
+        }, timeoutMs)
+      : undefined;
     outer?.addEventListener("abort", onAbort, { once: true });
 
     let pending: Promise<T>;

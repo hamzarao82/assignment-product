@@ -202,24 +202,87 @@ export async function fetchTasksPage(
   return { items, nextCursor };
 }
 
-export type TaskChanges = Partial<Pick<Task, "title" | "priority" | "tags" | "completedAt">>;
-
-/** Mutation endpoints used by the store. */
+/** Mutation endpoints used by the store. Every write carries the version the client saw. */
 export interface TaskApi {
   addTask(task: Task): Promise<void>;
-  updateTask(id: TaskId, changes: TaskChanges | TaskPatch): Promise<void>;
-  deleteTask(id: TaskId): Promise<void>;
+  updateTask(id: TaskId, patch: TaskPatch, expectedVersion: number): Promise<void>;
+  deleteTask(id: TaskId, expectedVersion: number): Promise<void>;
 }
 
-export function createSimulatedTaskApi(
-  opts: { rng?: Rng; delayMs?: number; failureRate?: number } = {},
-): TaskApi {
+export interface SimulatedTaskServer extends TaskApi {
+  /** The server-side tasks right now (a copy). */
+  snapshot(): readonly Task[];
+  /** Another client edits a task directly on the server, bumping its version. */
+  externalUpdate(id: TaskId, patch: TaskPatch): void;
+}
+
+export type ServerOp = "add" | "update" | "delete";
+
+export interface SimulatedServerOptions {
+  initialTasks?: readonly Task[];
+  rng?: Rng;
+  now?: Clock;
+  /** A fixed delay, or a function so tests can make some requests slower than others. */
+  delayMs?: number | ((op: ServerOp, id: TaskId) => number);
+  /** Chance (0..1) that a request fails with a retryable network error before applying. */
+  failureRate?: number;
+}
+
+/**
+ * In-memory server with real state. Changes are applied when a request ARRIVES (after its
+ * delay), so out-of-order arrival is observable. Stale writes are refused with a
+ * VersionConflictError instead of overwriting; add and delete are idempotent.
+ */
+export function createSimulatedTaskApi(opts: SimulatedServerOptions = {}): SimulatedTaskServer {
   const rng = opts.rng ?? Math.random;
-  const delayMs = opts.delayMs ?? 100;
+  const now = opts.now ?? (() => new Date());
   const failureRate = opts.failureRate ?? 0;
-  const call = async (): Promise<void> => {
-    await sleep(delayMs);
+  const tasks = new Map<string, Task>((opts.initialTasks ?? []).map((t) => [t.id, t]));
+  const delayFor = (op: ServerOp, id: TaskId): number =>
+    typeof opts.delayMs === "function" ? opts.delayMs(op, id) : (opts.delayMs ?? 100);
+
+  async function arrive(op: ServerOp, id: TaskId): Promise<void> {
+    await sleep(delayFor(op, id));
     if (rng() < failureRate) throw new RetryableError("network", "Mutation failed");
+  }
+
+  function applyPatch(task: Task, patch: TaskPatch): Task {
+    return { ...task, ...patch, version: task.version + 1, updatedAt: now() };
+  }
+
+  return {
+    async addTask(task) {
+      await arrive("add", task.id);
+      const existing = tasks.get(task.id);
+      if (existing === undefined) {
+        tasks.set(task.id, task);
+      } else if (existing.version !== task.version) {
+        throw new NonRetryableError(`Task ${task.id} already exists`);
+      }
+    },
+    async updateTask(id, patch, expectedVersion) {
+      await arrive("update", id);
+      const existing = tasks.get(id);
+      if (existing === undefined) throw new NonRetryableError(`Task ${id} not found`);
+      if (existing.version !== expectedVersion) {
+        throw new VersionConflictError(existing, expectedVersion);
+      }
+      tasks.set(id, applyPatch(existing, patch));
+    },
+    async deleteTask(id, expectedVersion) {
+      await arrive("delete", id);
+      const existing = tasks.get(id);
+      if (existing === undefined) return;
+      if (existing.version !== expectedVersion) {
+        throw new VersionConflictError(existing, expectedVersion);
+      }
+      tasks.delete(id);
+    },
+    snapshot: () => [...tasks.values()],
+    externalUpdate(id, patch) {
+      const existing = tasks.get(id);
+      if (existing === undefined) throw new NonRetryableError(`Task ${id} not found`);
+      tasks.set(id, applyPatch(existing, patch));
+    },
   };
-  return { addTask: call, updateTask: call, deleteTask: call };
 }

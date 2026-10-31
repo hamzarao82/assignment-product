@@ -44,3 +44,26 @@ fix** (the reproductions became the regression tests listed in the last column).
 - No offline behaviour, import/export, audit trail, metrics or redacted diagnostics.
 - Accessibility: no landmarks, live regions or labelled controls in the renderer.
 - Partial corruption was invisible: `fetchTasks` dropped invalid records without a signal.
+
+## Found in the final release check
+
+A last pass, reading the Advanced spec clause by clause against the code and running the
+suite repeatedly, found eleven more gaps. Each was fixed on the branch where it belongs,
+and each has a test that fails when the fix is removed (checked by deleting the fix).
+
+| ID  | Spec clause                | Gap                                                                                               | Fix                                                                                   |
+| --- | -------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| G1  | section 7 PR template      | The template lacked the required "Test evidence" field                                            | Field added                                                                           |
+| G2  | 4.6 repeated cursors       | The simulator could not produce a repeated cursor                                                 | `cursorLoop` option; tests for a self-repeat and an A-B-A cycle                       |
+| G3  | 4.3 / section 9            | Parsers read inherited properties, so a polluted prototype could supply a field                   | `ownProp` (own properties only) in the task, patch, import and queue parsers          |
+| G4  | 4.13 scripts               | ESLint scanned the generated `dist/`, so a second local `verify` run failed                       | `dist` added to the ESLint ignores                                                    |
+| G5  | 4.4 "max three attempts"   | A caller could request more than three attempts                                                   | Requests are clamped to 1..3; tests for 3, 4, 10, 1000 and Infinity                   |
+| G6  | 4.4 inject the clock       | `fetchTasks` accepted a clock it never read, implying injection that did not exist                | Clock moved to the paged simulator and server, where it is used                       |
+| G7  | 4.9 escape import text     | Nothing rendered an import, so that text path was untested                                        | `renderImportPreview` / `renderImportError`, escaped, with property tests             |
+| G8  | 4.9 visible focus hooks    | The hook classes existed but nothing made focus visible                                           | `APP_STYLES` (outline on `:focus-visible`, never removed; reduced motion)             |
+| G9  | 3 "no function may mutate" | Non-mutation was tested for some functions only, and `Object.freeze` cannot stop `date.setTime()` | Harness with frozen inputs and a Date whose setters throw, over every public function |
+| G10 | 9 self-check               | "Would the compiler force a renderer change?" was shown by running code, not by the compiler      | A `@ts-expect-error` test that fails the build if an unhandled variant compiles       |
+| G11 | 8 / deliverables           | The coverage report was only a local file                                                         | CI uploads it as an artifact with a job summary; `docs/coverage-summary.md`           |
+
+Stability checks at the end: the full suite passed repeatedly, including under randomised
+test order with several seeds, so no test depends on run order or leaks fake timers.
