@@ -68,7 +68,9 @@ diagnostics, and the accessible renderer.
 **Files changed:** `src/store.ts`, `src/api.ts` (versioned simulated server), `src/audit.ts`,
 `src/conflict.ts`, `src/cache.ts`, `src/search.ts`, `src/importExport.ts`,
 `src/offlineQueue.ts`, `src/diagnostics.ts`, `src/render.ts`, `src/stats.ts`, `src/equality.ts`,
-their tests, `tests/scenario.test.ts`, and `docs/` (architecture, demo script, learning log).
+their tests, `tests/scenario.test.ts` (the executable demo), `tests/immutability.test.ts`
+(no function mutates its inputs), the import preview view and focus styles in `src/render.ts`,
+and `docs/` (architecture, audit report, coverage summary, demo script, learning log).
 
 **Risk / permissions:** None. All user text is escaped in HTML and sanitised in the audit
 trail; diagnostics redact titles, tags, ids and error messages.
