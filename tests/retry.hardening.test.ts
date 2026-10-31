@@ -18,7 +18,10 @@ describe("normalizeAttempts", () => {
     [-5, 1],
     [2.9, 2],
     [1, 1],
-    [7, 7],
+    [3, 3],
+    [4, 3],
+    [7, 3],
+    [1000, 3],
     [Number.NaN, 3],
     [Number.POSITIVE_INFINITY, 3],
     [undefined, 3],
@@ -87,20 +90,20 @@ describe("capped backoff", () => {
     expect(backoffDelay(4, 100, () => 1)).toBe(800);
   });
 
-  it("applies the cap inside withRetry across many attempts", async () => {
+  it("applies the delay cap inside withRetry", async () => {
     const delays: number[] = [];
     const op = vi.fn(() => Promise.reject(new RetryableError("network", "down")));
     const p = withRetry(op, {
-      maxAttempts: 6,
+      maxAttempts: 3,
       baseDelayMs: 1000,
-      maxDelayMs: 2500,
+      maxDelayMs: 1500,
       rng: () => 1,
       onRetry: (i) => delays.push(i.delayMs),
     });
     const assertion = expect(p).rejects.toThrow("down");
     await vi.runAllTimersAsync();
     await assertion;
-    expect(delays).toEqual([1000, 2000, 2500, 2500, 2500]);
+    expect(delays).toEqual([1000, 1500]); // 2000 would exceed the cap
   });
 });
 
@@ -215,5 +218,29 @@ describe("non-finite timeout disables the per-attempt timer", () => {
     ctrl.abort();
     await assertion;
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("hard ceiling of three attempts (4.4)", () => {
+  it.each([3, 4, 10, 1000, Number.POSITIVE_INFINITY])(
+    "never tries more than three times when asked for %s",
+    async (asked) => {
+      const op = vi.fn(() => Promise.reject(new RetryableError("network", "down")));
+      const p = withRetry(op, { maxAttempts: asked, baseDelayMs: 1, rng: () => 0 });
+      const assertion = expect(p).rejects.toThrow("down");
+      await vi.runAllTimersAsync();
+      await assertion;
+      expect(op).toHaveBeenCalledTimes(3);
+    },
+  );
+
+  it("counts exactly three attempts and two retries in the metrics", async () => {
+    const metrics = createMetrics();
+    const op = vi.fn(() => Promise.reject(new RetryableError("timeout", "slow")));
+    const p = withRetry(op, { maxAttempts: 99, baseDelayMs: 1, rng: () => 0, metrics });
+    const assertion = expect(p).rejects.toThrow("slow");
+    await vi.runAllTimersAsync();
+    await assertion;
+    expect(metrics.snapshot()).toMatchObject({ attempts: 3, retries: 2 });
   });
 });
