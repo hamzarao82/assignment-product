@@ -1,6 +1,7 @@
 import type { Conflict, TaskSummary } from "./conflict";
+import type { ImportPreview } from "./importExport";
 import { computeStats, isOverdue } from "./stats";
-import { type AsyncState, type Task, type TaskListState, assertNever } from "./types";
+import { type AsyncState, type Result, type Task, type TaskListState, assertNever } from "./types";
 
 const ESCAPES: Record<string, string> = {
   "&": "&amp;",
@@ -198,6 +199,8 @@ export interface AppView {
   /** Latest mutation failure from the store. */
   error?: string | null;
   conflicts?: readonly Conflict[];
+  /** A pending import: the dry-run preview, or why the file could not be read. */
+  importResult?: Result<ImportPreview>;
 }
 
 /**
@@ -219,6 +222,67 @@ export function renderTaskApp(view: AppView): string {
     `<div class="app__alerts" role="alert" aria-atomic="true">${alerts}</div>` +
     `<section class="tasks" aria-labelledby="task-list-title">` +
     `<h2 id="task-list-title" class="visually-hidden">Task list</h2>` +
-    `${renderTaskList(view.state, view.ctx)}</section></main>`
+    `${renderTaskList(view.state, view.ctx)}</section>` +
+    (view.importResult === undefined ? "" : renderImportResult(view.importResult)) +
+    `</main>`
   );
 }
+
+/** Dry-run import summary. Every number is plain; every piece of text is escaped. */
+export function renderImportPreview(preview: ImportPreview): string {
+  const { accepted, rejected, created, updated, unchanged } = preview.summary;
+  const rows: readonly (readonly [string, number])[] = [
+    ["Accepted", accepted],
+    ["Rejected", rejected],
+    ["Created", created],
+    ["Updated", updated],
+    ["Unchanged", unchanged],
+  ];
+  const problems = preview.rejected
+    .map((r) => `<li>Record ${r.index + 1}: ${r.errors.map(escapeHtml).join("; ")}</li>`)
+    .join("");
+  return (
+    `<section class="import-preview" aria-labelledby="import-title">` +
+    `<h2 id="import-title">Import preview</h2>` +
+    `<p class="import-preview__note">This is a dry run. Nothing has changed yet.</p>` +
+    `<dl class="import-summary">${rows.map(([k, n]) => `<dt>${k}</dt><dd>${n}</dd>`).join("")}</dl>` +
+    (problems ? `<ul class="import-rejected" aria-label="Rejected records">${problems}</ul>` : "") +
+    `<button type="button" class="${BUTTON}" data-action="confirm-import">Apply import</button>` +
+    `<button type="button" class="${BUTTON}" data-action="cancel-import">Cancel</button>` +
+    `</section>`
+  );
+}
+
+/** Shown instead of a preview when the file itself could not be read. */
+export function renderImportError(errors: readonly string[]): string {
+  return (
+    `<section class="import-preview import-preview--error" role="alert" aria-labelledby="import-title">` +
+    `<h2 id="import-title">Could not read the import file</h2>` +
+    `<ul>${errors.map((e) => `<li>${escapeHtml(e)}</li>`).join("")}</ul>` +
+    `<button type="button" class="${BUTTON}" data-action="cancel-import">Close</button>` +
+    `</section>`
+  );
+}
+
+export function renderImportResult(result: Result<ImportPreview>): string {
+  return result.ok ? renderImportPreview(result.value) : renderImportError(result.errors);
+}
+
+/**
+ * Minimal styles for the hooks the markup emits. Focus is made visible with a strong
+ * outline on :focus-visible and is never removed; motion respects the user preference.
+ */
+export const APP_STYLES = `
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.skip-link { position: absolute; left: -9999px; top: 0; }
+.skip-link:focus-visible { left: 0; z-index: 10; background: #fff; padding: 0.5rem 1rem; }
+.focus-ring:focus-visible { outline: 3px solid #1a73e8; outline-offset: 2px; }
+.task--done .task__title { text-decoration: line-through; }
+.task--overdue .task__overdue { color: #b00020; font-weight: 600; }
+.task--pending { opacity: 0.7; }
+.spinner { display: inline-block; width: 1em; height: 1em; border: 2px solid currentColor;
+  border-right-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+`;
